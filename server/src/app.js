@@ -16,10 +16,6 @@ await connectDB();
 
 const app = express();
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://ai-document-assistant-dabw.vercel.app",
-];
 app.get("/api/debug/cloudinary", (req, res) => {
   res.json({
     cloud_name: !!process.env.CLOUDINARY_CLOUD_NAME,
@@ -27,6 +23,11 @@ app.get("/api/debug/cloudinary", (req, res) => {
     api_secret: !!process.env.CLOUDINARY_API_SECRET,
   });
 });
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://ai-document-assistant-dabw.vercel.app",
+];
 app.use(
   cors({
     origin: (origin, callback) => {
