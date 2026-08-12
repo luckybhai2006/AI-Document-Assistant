@@ -1,5 +1,6 @@
 import axios from "axios";
 import { PDFParse } from "pdf-parse";
+import { CanvasFactory } from "pdf-parse/worker";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { Document } from "../models/Document.js";
 import { saveChunksToVectorStore } from "../utils/vectorStore.js";
@@ -21,16 +22,19 @@ export const processDocument = async (documentId) => {
     // PDF
     // =========================
     if (doc.mimeType === "application/pdf") {
-      // Cloudinary se PDF download
+      console.log("📄 Downloading PDF from Cloudinary...");
+
       const response = await axios.get(doc.filePath, {
         responseType: "arraybuffer",
       });
 
       const pdfBuffer = Buffer.from(response.data);
 
-      // pdf-parse v2
+      console.log("📄 Parsing PDF...");
+
       const parser = new PDFParse({
-        data: pdfBuffer,
+        data: new Uint8Array(pdfBuffer),
+        CanvasFactory,
       });
 
       const result = await parser.getText();
@@ -45,12 +49,16 @@ export const processDocument = async (documentId) => {
           },
         },
       ];
+
+      console.log("✅ PDF parsed successfully");
     }
 
     // =========================
     // TXT
     // =========================
     else if (doc.mimeType === "text/plain") {
+      console.log("📄 Downloading TXT from Cloudinary...");
+
       const response = await axios.get(doc.filePath, {
         responseType: "text",
       });
@@ -63,19 +71,25 @@ export const processDocument = async (documentId) => {
           },
         },
       ];
+
+      console.log("✅ TXT loaded successfully");
     }
 
     // =========================
-    // Unsupported
+    // Unsupported file
     // =========================
     else {
       throw new Error(`Unsupported mimeType: ${doc.mimeType}`);
     }
 
+    // =========================
     // Empty document check
+    // =========================
     if (!rawDocs[0]?.pageContent?.trim()) {
       throw new Error("No readable text found in document");
     }
+
+    console.log("📝 Text length:", rawDocs[0].pageContent.length);
 
     // =========================
     // Split text into chunks
@@ -91,6 +105,8 @@ export const processDocument = async (documentId) => {
       (chunk) => chunk.pageContent && chunk.pageContent.trim().length > 0
     );
 
+    console.log("✂️ Chunks created:", chunks.length);
+
     // =========================
     // Add metadata
     // =========================
@@ -105,12 +121,19 @@ export const processDocument = async (documentId) => {
     // =========================
     // Save to ChromaDB
     // =========================
+    console.log("🧠 Saving chunks to vector store...");
+
     await saveChunksToVectorStore(chunksWithMetadata);
 
+    // =========================
+    // Mark document indexed
+    // =========================
     doc.status = "INDEXED";
     await doc.save();
 
-    console.log(`✅ Document ${documentId} indexed. Chunks: ${chunks.length}`);
+    console.log(
+      `✅ Document ${documentId} indexed successfully. Chunks: ${chunks.length}`
+    );
 
     return {
       success: true,
@@ -126,3 +149,4 @@ export const processDocument = async (documentId) => {
     throw error;
   }
 };
+// hellow
