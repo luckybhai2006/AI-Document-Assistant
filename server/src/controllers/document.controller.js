@@ -2,6 +2,7 @@ import { Document } from "../models/Document.js";
 import { processDocument } from "../services/document.service.js";
 import { Chat } from "../models/Chat.js";
 import { CloudClient } from "chromadb";
+import cloudinary from "../config/cloudinary.js";
 import fs from "fs";
 
 export const uploadDocument = async (req, res) => {
@@ -10,25 +11,39 @@ export const uploadDocument = async (req, res) => {
       return res.status(400).json({ message: "No file uploaded" });
     }
 
-    const userId = req.user.userId || req.user._id; // 🟢 consistent
+    const userId = req.user.userId || req.user._id;
 
-    // 1. Create document entry with default status 'PENDING'
+    // Upload file to Cloudinary
+    const uploadResult = await new Promise((resolve, reject) => {
+      const stream = cloudinary.uploader.upload_stream(
+        {
+          resource_type: "raw",
+          folder: "ai-document-assistant",
+        },
+        (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        }
+      );
+
+      stream.end(req.file.buffer);
+    });
+
+    // Create document entry
     const newDocument = await Document.create({
       userId,
-      fileName: req.file.filename,
+      fileName: req.file.originalname,
       originalName: req.file.originalname,
       mimeType: req.file.mimetype,
       size: req.file.size,
-      filePath: req.file.path,
+      filePath: uploadResult.secure_url,
       status: "PENDING",
     });
 
     console.log(`⏳ Processing document ID: ${newDocument._id}...`);
 
-    // 2. Await processDocument execution completely
     const result = await processDocument(newDocument._id);
 
-    // 3. Fetch the updated document from MongoDB to verify status change
     const updatedDocument = await Document.findById(newDocument._id);
 
     return res.status(201).json({
@@ -38,6 +53,7 @@ export const uploadDocument = async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Document ingestion/indexing failed:", error.message);
+
     return res.status(500).json({
       message: "Upload or indexing failed",
       error: error.message,
