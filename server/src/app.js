@@ -13,16 +13,16 @@ dotenv.config();
 
 const app = express();
 
-// const __dirname = path.resolve();
+const __dirname = path.resolve();
 
-// // 1. Client/dist folder ko static serve karein
-// const distPath = path.join(__dirname, "../client/dist");
-// app.use(express.static(distPath));
+// 1. Client/dist folder ko static serve karein
+const distPath = path.join(__dirname, "../client/dist");
+app.use(express.static(distPath));
 
-// // 2. Catch-all route sirf dist/index.html bhejega
-// app.get("/{0,}", (req, res) => {
-//   res.sendFile(path.join(distPath, "index.html"));
-// });
+// 2. Catch-all route sirf dist/index.html bhejega
+app.get("/{0,}", (req, res) => {
+  res.sendFile(path.join(distPath, "index.html"));
+});
 // // 🟢 Isse replace karein:
 app.use(
   cors({
