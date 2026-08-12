@@ -1,16 +1,10 @@
-import fs from "fs";
-import os from "os";
-import path from "path";
 import axios from "axios";
-
-import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
+import { PDFParse } from "pdf-parse";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { Document } from "../models/Document.js";
 import { saveChunksToVectorStore } from "../utils/vectorStore.js";
 
 export const processDocument = async (documentId) => {
-  let tempFilePath = null;
-
   try {
     const doc = await Document.findById(documentId);
 
@@ -23,23 +17,40 @@ export const processDocument = async (documentId) => {
 
     let rawDocs = [];
 
+    // =========================
+    // PDF
+    // =========================
     if (doc.mimeType === "application/pdf") {
-      // Cloudinary URL se PDF download
+      // Cloudinary se PDF download
       const response = await axios.get(doc.filePath, {
         responseType: "arraybuffer",
       });
 
-      // Temporary file
-      tempFilePath = path.join(os.tmpdir(), `${doc._id}.pdf`);
+      const pdfBuffer = Buffer.from(response.data);
 
-      fs.writeFileSync(tempFilePath, response.data);
+      // pdf-parse v2
+      const parser = new PDFParse({
+        data: pdfBuffer,
+      });
 
-      // PDFLoader temporary file se PDF read karega
-      const loader = new PDFLoader(tempFilePath);
+      const result = await parser.getText();
 
-      rawDocs = await loader.load();
-    } else if (doc.mimeType === "text/plain") {
-      // Cloudinary URL se TXT download
+      await parser.destroy();
+
+      rawDocs = [
+        {
+          pageContent: result.text,
+          metadata: {
+            source: doc.filePath,
+          },
+        },
+      ];
+    }
+
+    // =========================
+    // TXT
+    // =========================
+    else if (doc.mimeType === "text/plain") {
       const response = await axios.get(doc.filePath, {
         responseType: "text",
       });
@@ -52,10 +63,23 @@ export const processDocument = async (documentId) => {
           },
         },
       ];
-    } else {
+    }
+
+    // =========================
+    // Unsupported
+    // =========================
+    else {
       throw new Error(`Unsupported mimeType: ${doc.mimeType}`);
     }
 
+    // Empty document check
+    if (!rawDocs[0]?.pageContent?.trim()) {
+      throw new Error("No readable text found in document");
+    }
+
+    // =========================
+    // Split text into chunks
+    // =========================
     const splitter = new RecursiveCharacterTextSplitter({
       chunkSize: 1000,
       chunkOverlap: 200,
@@ -67,6 +91,9 @@ export const processDocument = async (documentId) => {
       (chunk) => chunk.pageContent && chunk.pageContent.trim().length > 0
     );
 
+    // =========================
+    // Add metadata
+    // =========================
     const chunksWithMetadata = chunks.map((chunk) => ({
       ...chunk,
       metadata: {
@@ -75,10 +102,15 @@ export const processDocument = async (documentId) => {
       },
     }));
 
+    // =========================
+    // Save to ChromaDB
+    // =========================
     await saveChunksToVectorStore(chunksWithMetadata);
 
     doc.status = "INDEXED";
     await doc.save();
+
+    console.log(`✅ Document ${documentId} indexed. Chunks: ${chunks.length}`);
 
     return {
       success: true,
@@ -92,10 +124,5 @@ export const processDocument = async (documentId) => {
     });
 
     throw error;
-  } finally {
-    // Temporary PDF delete
-    if (tempFilePath && fs.existsSync(tempFilePath)) {
-      fs.unlinkSync(tempFilePath);
-    }
   }
 };
