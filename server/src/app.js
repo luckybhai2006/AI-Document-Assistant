@@ -20,7 +20,13 @@ const allowedOrigins = [
   "http://localhost:5173",
   "https://ai-document-assistant-dabw.vercel.app",
 ];
-
+app.get("/api/debug/cloudinary", (req, res) => {
+  res.json({
+    cloud_name: !!process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: !!process.env.CLOUDINARY_API_KEY,
+    api_secret: !!process.env.CLOUDINARY_API_SECRET,
+  });
+});
 app.use(
   cors({
     origin: (origin, callback) => {
