@@ -1,4 +1,15 @@
+// =========================
+// IMPORTANT: Polyfill must be set BEFORE pdf-parse (pdfjs-dist) is imported/used.
+// Isliye ye sabse top pe hai, kisi bhi PDF-related import se pehle.
+// =========================
+import { DOMMatrix, Path2D, ImageData } from "@napi-rs/canvas";
+
+globalThis.DOMMatrix = DOMMatrix;
+globalThis.Path2D = Path2D;
+globalThis.ImageData = ImageData;
+
 import axios from "axios";
+import { PDFParse } from "pdf-parse";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { Document } from "../models/Document.js";
 import { saveChunksToVectorStore } from "../utils/vectorStore.js";
@@ -34,11 +45,9 @@ export const processDocument = async (documentId) => {
 
       console.log("📄 Parsing PDF...");
 
-      // IMPORTANT:
-      // pdf-parse ko startup par load nahi karna.
-      // Sirf PDF process hone ke time dynamically load hoga.
-      const { PDFParse } = await import("pdf-parse");
-
+      // NOTE: dynamic import hata diya hai — static top-level import
+      // already ho chuka hai upar, isliye dobara import karne ki
+      // zaroorat nahi thi (ye purani file mein duplicate tha).
       const parser = new PDFParse({
         data: new Uint8Array(pdfBuffer),
       });
