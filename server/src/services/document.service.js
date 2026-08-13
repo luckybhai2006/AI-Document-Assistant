@@ -1,15 +1,5 @@
-// =========================
-// IMPORTANT: Polyfill must be set BEFORE pdf-parse (pdfjs-dist) is imported/used.
-// Isliye ye sabse top pe hai, kisi bhi PDF-related import se pehle.
-// =========================
-import { DOMMatrix, Path2D, ImageData } from "@napi-rs/canvas";
-
-globalThis.DOMMatrix = DOMMatrix;
-globalThis.Path2D = Path2D;
-globalThis.ImageData = ImageData;
-
 import axios from "axios";
-import { PDFParse } from "pdf-parse";
+import { extractText, getDocumentProxy } from "unpdf";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { Document } from "../models/Document.js";
 import { saveChunksToVectorStore } from "../utils/vectorStore.js";
@@ -41,24 +31,18 @@ export const processDocument = async (documentId) => {
         responseType: "arraybuffer",
       });
 
-      const pdfBuffer = Buffer.from(response.data);
+      // unpdf ko Uint8Array chahiye, DOMMatrix ya worker file
+      // ki koi zaroorat nahi — isliye Vercel serverless pe safe hai
+      const pdfBuffer = new Uint8Array(response.data);
 
       console.log("📄 Parsing PDF...");
 
-      // NOTE: dynamic import hata diya hai — static top-level import
-      // already ho chuka hai upar, isliye dobara import karne ki
-      // zaroorat nahi thi (ye purani file mein duplicate tha).
-      const parser = new PDFParse({
-        data: new Uint8Array(pdfBuffer),
-      });
-
-      const result = await parser.getText();
-
-      await parser.destroy();
+      const pdf = await getDocumentProxy(pdfBuffer);
+      const { text } = await extractText(pdf, { mergePages: true });
 
       rawDocs = [
         {
-          pageContent: result.text,
+          pageContent: text,
           metadata: {
             source: doc.filePath,
           },
