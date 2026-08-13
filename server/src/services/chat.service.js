@@ -38,9 +38,16 @@ export const streamAnswerFromDocs = async (params, onChunk) => {
     if (documentId) {
       const searchResults = await collection.query({
         queryEmbeddings: [queryVector],
-        nResults: 4,
+        nResults: 8,
         where: { documentId: documentId.toString() },
       });
+
+      console.log("🔎 DOCUMENT ID:", documentId);
+      console.log("🔎 QUERY:", question);
+      console.log(
+        "📚 RETRIEVED CHUNKS:",
+        JSON.stringify(searchResults.documents?.[0], null, 2)
+      );
       matchingDocs = searchResults.documents[0] || [];
     }
     // Mode B: Multi-Document Search (If multiple doc IDs passed)
@@ -73,21 +80,26 @@ export const streamAnswerFromDocs = async (params, onChunk) => {
 
   if (contextText && contextText.trim().length > 20) {
     // Mode 1: Strict PDF Document Context
-    prompt = `You are an expert AI Document Assistant.
-Answer the user's question accurately based on the document context provided below.
+    prompt = `You are an AI Document Assistant.
 
-CONTEXT:
+The user has selected an uploaded document. You MUST answer using the document context provided below.
+
+IMPORTANT RULES:
+1. Use the provided document context as the primary and only source of truth.
+2. Never say that the user has not uploaded a document if document context is available.
+3. Never invent information that is not present in the context.
+4. If the question asks what the document is about, identify its title, project name, subject, introduction, or other relevant information from the context.
+5. If the question asks for the number of pages, look carefully for page markers such as "35 of 35".
+6. If the answer cannot be found in the provided context, say clearly that the information could not be found in the retrieved part of the document.
+7. Give a direct, natural answer. Do not mention embeddings, ChromaDB, vector search, or internal system details.
+
+DOCUMENT CONTEXT:
 ${contextText}
 
 USER QUESTION:
-${question}`;
-  } else {
-    // Mode 2: General Intelligent AI Mode (ChatGPT/Gemini Style)
-    prompt = `You are an advanced, helpful, and highly intelligent AI Assistant.
-The user's question is general or not found in their current documents. Answer the user comprehensively, directly, and naturally.
+${question}
 
-USER QUESTION:
-${question}`;
+ANSWER:`;
   }
 
   // 3. Gemini Stream Generation

@@ -1,6 +1,5 @@
 import axios from "axios";
 import { PDFParse } from "pdf-parse";
-import { CanvasFactory } from "pdf-parse/worker";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { Document } from "../models/Document.js";
 import { saveChunksToVectorStore } from "../utils/vectorStore.js";
@@ -13,7 +12,11 @@ export const processDocument = async (documentId) => {
       throw new Error("Document not found in MongoDB");
     }
 
+    // =========================
+    // Start Processing
+    // =========================
     doc.status = "PROCESSING";
+    doc.progress = 10;
     await doc.save();
 
     let rawDocs = [];
@@ -34,7 +37,6 @@ export const processDocument = async (documentId) => {
 
       const parser = new PDFParse({
         data: new Uint8Array(pdfBuffer),
-        CanvasFactory,
       });
 
       const result = await parser.getText();
@@ -76,14 +78,14 @@ export const processDocument = async (documentId) => {
     }
 
     // =========================
-    // Unsupported file
+    // Unsupported File
     // =========================
     else {
       throw new Error(`Unsupported mimeType: ${doc.mimeType}`);
     }
 
     // =========================
-    // Empty document check
+    // Empty Document Check
     // =========================
     if (!rawDocs[0]?.pageContent?.trim()) {
       throw new Error("No readable text found in document");
@@ -92,7 +94,7 @@ export const processDocument = async (documentId) => {
     console.log("📝 Text length:", rawDocs[0].pageContent.length);
 
     // =========================
-    // Split text into chunks
+    // Split Text Into Chunks
     // =========================
     const splitter = new RecursiveCharacterTextSplitter({
       chunkSize: 1000,
@@ -101,14 +103,26 @@ export const processDocument = async (documentId) => {
 
     const rawChunks = await splitter.splitDocuments(rawDocs);
 
-    const chunks = rawChunks.filter(
-      (chunk) => chunk.pageContent && chunk.pageContent.trim().length > 0
-    );
+    const chunks = rawChunks.filter((chunk) => {
+      const text = chunk.pageContent?.trim();
+
+      if (!text) return false;
+
+      const cleanedText = text.replace(/--\s*\d+\s+of\s+\d+\s*--/gi, "").trim();
+
+      return cleanedText.length > 30;
+    });
 
     console.log("✂️ Chunks created:", chunks.length);
 
     // =========================
-    // Add metadata
+    // Parsing Complete
+    // =========================
+    doc.progress = 50;
+    await doc.save();
+
+    // =========================
+    // Add Metadata
     // =========================
     const chunksWithMetadata = chunks.map((chunk) => ({
       ...chunk,
@@ -119,16 +133,30 @@ export const processDocument = async (documentId) => {
     }));
 
     // =========================
-    // Save to ChromaDB
+    // Save To ChromaDB
     // =========================
     console.log("🧠 Saving chunks to vector store...");
 
-    await saveChunksToVectorStore(chunksWithMetadata);
+    await saveChunksToVectorStore(
+      chunksWithMetadata,
+      async (completed, total) => {
+        const embeddingProgress = 55 + Math.round((completed / total) * 35);
+
+        await Document.findByIdAndUpdate(doc._id, {
+          progress: embeddingProgress,
+        });
+
+        console.log(
+          `📊 Document progress: ${embeddingProgress}% (${completed}/${total})`
+        );
+      }
+    );
 
     // =========================
-    // Mark document indexed
+    // Finished
     // =========================
     doc.status = "INDEXED";
+    doc.progress = 100;
     await doc.save();
 
     console.log(
@@ -144,6 +172,7 @@ export const processDocument = async (documentId) => {
 
     await Document.findByIdAndUpdate(documentId, {
       status: "FAILED",
+      progress: 0,
     });
 
     throw error;

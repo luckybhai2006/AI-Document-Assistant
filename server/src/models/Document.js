@@ -33,6 +33,10 @@ const documentSchema = new mongoose.Schema(
       enum: ["PENDING", "PROCESSING", "INDEXED", "FAILED"],
       default: "PENDING",
     },
+    progress: {
+      type: Number,
+      default: 0,
+    },
   },
   {
     timestamps: true,
