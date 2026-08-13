@@ -3,18 +3,65 @@ import cors from "cors";
 import multer from "multer";
 import axios from "axios";
 import FormData from "form-data";
-import dotenv from "dotenv";
 
 import authRoutes from "./routes/auth.routes.js";
 import documentRoutes from "./routes/document.routes.js";
 import chatRoutes from "./routes/chat.routes.js";
-import connectDB from "./config/connectDB.js";
-
-dotenv.config();
-
-await connectDB();
 
 const app = express();
+
+// =====================================================
+// CORS
+// =====================================================
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://ai-document-assistant-dabw.vercel.app",
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Postman / server-to-server requests
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      console.log("❌ CORS blocked:", origin);
+
+      return callback(new Error("Not allowed by CORS"));
+    },
+
+    credentials: true,
+
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+
+    allowedHeaders: ["Content-Type", "Authorization"],
+
+    optionsSuccessStatus: 204,
+  })
+);
+
+// =====================================================
+// BODY PARSER
+// =====================================================
+
+app.use(express.json());
+
+// =====================================================
+// DEBUG
+// =====================================================
+
+app.get("/api/debug", (req, res) => {
+  res.json({
+    success: true,
+    message: "Backend API is working",
+  });
+});
 
 app.get("/api/debug/cloudinary", (req, res) => {
   res.json({
@@ -24,43 +71,28 @@ app.get("/api/debug/cloudinary", (req, res) => {
   });
 });
 
-const allowedOrigins = [
-  "http://localhost:5173",
-  "https://ai-document-assistant-dabw.vercel.app",
-];
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Postman/server-to-server requests
-      if (!origin) {
-        return callback(null, true);
-      }
+// =====================================================
+// ROUTES
+// =====================================================
 
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-
-      return callback(new Error("Not allowed by CORS"));
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
-
-app.use(express.json());
-
-// Routes
 app.use("/api/auth", authRoutes);
+
 app.use("/api/documents", documentRoutes);
+
 app.use("/api/chat", chatRoutes);
 
-// Multer in-memory storage for audio
+// =====================================================
+// MULTER - AUDIO
+// =====================================================
+
 const upload = multer({
   storage: multer.memoryStorage(),
 });
 
-// Audio transcription
+// =====================================================
+// AUDIO TRANSCRIPTION
+// =====================================================
+
 app.post("/api/transcribe", upload.single("audio"), async (req, res) => {
   try {
     if (!req.file) {
@@ -77,12 +109,14 @@ app.post("/api/transcribe", upload.single("audio"), async (req, res) => {
     });
 
     formData.append("model", "whisper-large-v3-turbo");
+
     formData.append("response_format", "json");
 
     const apiKey = process.env.GROQ_API_KEY || process.env.GROG_KEY;
 
     if (!apiKey) {
-      console.error("Groq API key is missing");
+      console.error("❌ Groq API key is missing");
+
       return res.status(500).json({
         error: "Server misconfiguration: Missing API Key",
       });
@@ -99,19 +133,53 @@ app.post("/api/transcribe", upload.single("audio"), async (req, res) => {
       }
     );
 
-    res.json({
+    return res.json({
       text: response.data.text,
     });
   } catch (error) {
     console.error(
-      "Groq Transcription Error:",
+      "❌ Groq Transcription Error:",
       error.response?.data || error.message
     );
 
-    res.status(500).json({
+    return res.status(500).json({
       error: "Failed to transcribe audio",
     });
   }
+});
+
+// =====================================================
+// 404 HANDLER
+// =====================================================
+
+app.use((req, res) => {
+  console.log(`❌ Route not found: ${req.method} ${req.originalUrl}`);
+
+  return res.status(404).json({
+    success: false,
+    message: `Route not found: ${req.method} ${req.originalUrl}`,
+  });
+});
+
+// =====================================================
+// ERROR HANDLER
+// =====================================================
+
+app.use((err, req, res, next) => {
+  console.error("❌ Express Error:", err.message);
+
+  if (err.message === "Not allowed by CORS") {
+    return res.status(403).json({
+      success: false,
+      message: "CORS blocked this origin",
+    });
+  }
+
+  return res.status(500).json({
+    success: false,
+    message: "Internal server error",
+    error: err.message,
+  });
 });
 
 export default app;
