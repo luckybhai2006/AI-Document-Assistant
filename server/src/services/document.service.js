@@ -1,5 +1,4 @@
 import axios from "axios";
-import { PDFParse } from "pdf-parse";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { Document } from "../models/Document.js";
 import { saveChunksToVectorStore } from "../utils/vectorStore.js";
@@ -34,6 +33,11 @@ export const processDocument = async (documentId) => {
       const pdfBuffer = Buffer.from(response.data);
 
       console.log("📄 Parsing PDF...");
+
+      // IMPORTANT:
+      // pdf-parse ko startup par load nahi karna.
+      // Sirf PDF process hone ke time dynamically load hoga.
+      const { PDFParse } = await import("pdf-parse");
 
       const parser = new PDFParse({
         data: new Uint8Array(pdfBuffer),
@@ -178,4 +182,3 @@ export const processDocument = async (documentId) => {
     throw error;
   }
 };
-// hellow
