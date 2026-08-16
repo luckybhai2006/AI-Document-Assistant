@@ -7,7 +7,7 @@ export default function VoiceWaveform({
   onCancel,
 }) {
   return (
-    <div className="flex items-center justify-between gap-3 w-full px-3 py-1 bg-[#1c1c1f] rounded-xl border border-indigo-500/30 animate-pulse">
+    <div className="flex items-center justify-between gap-3 w-full px-3 py-1 bg-[#1c1c1f] rounded-xl border border-indigo-500/30">
       <button
         type="button"
         onClick={onCancel}

@@ -662,28 +662,45 @@ export default function App() {
                   <p className="text-sm leading-relaxed">{msg.text}</p>
                 </div>
               ) : (
-                <div className="flex gap-3 md:gap-4 max-w-[95%] items-start">
+                <div className="flex gap-3 md:gap-4 w-full max-w-full items-start">
                   <div className="w-8 h-8 rounded-lg bg-[#8083ff] flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(192,193,255,0.2)] mt-0.5">
                     <span className="material-symbols-outlined text-[#1000a9] text-[18px]">
                       auto_awesome
                     </span>
                   </div>
 
-                  <div className="flex flex-col gap-2 pt-0.5 min-h-[32px] justify-center">
+                  <div className="flex flex-col gap-2 pt-0.5 min-h-[32px] justify-center min-w-0 flex-1">
                     <div className="text-sm text-[#e5e1e4] leading-relaxed prose prose-invert max-w-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-2">
+                      {/* 🔥 AI THINKING / LOADING */}
                       {isStreaming &&
                       idx === messages.length - 1 &&
                       msg.text === "" ? (
                         <AITypingLoader />
                       ) : (
                         <>
+                          {/* AI RESPONSE */}
                           <ReactMarkdown>{msg.text}</ReactMarkdown>
+
+                          {/* 📄 SOURCE PAGES */}
                           {msg.sources?.length > 0 && (
-                            <div className="mt-3 flex flex-wrap gap-2">
+                            <div className="mt-3 grid grid-cols-2 gap-2 w-full md:flex md:flex-wrap md:gap-2">
                               {msg.sources.map((source, sourceIndex) => (
                                 <span
                                   key={sourceIndex}
-                                  className="text-xs px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-[#c7c4d7]"
+                                  className="
+          w-full
+          min-w-0
+          md:w-auto
+          md:min-w-0
+          text-[11px] sm:text-xs
+          px-2.5 py-1
+          rounded-lg
+          bg-white/5
+          border border-white/10
+          text-[#c7c4d7]
+          text-center
+          whitespace-nowrap
+        "
                                 >
                                   📄 {selectedDoc?.name || "Document"} · Page{" "}
                                   {source.page}
@@ -691,6 +708,8 @@ export default function App() {
                               ))}
                             </div>
                           )}
+
+                          {/* 🔥 STREAMING CURSOR */}
                           {isStreaming && idx === messages.length - 1 && (
                             <span className="inline-block w-1.5 h-4 bg-[#c0c1ff] ml-1 animate-pulse"></span>
                           )}
