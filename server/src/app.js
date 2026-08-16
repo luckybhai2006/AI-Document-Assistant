@@ -16,6 +16,7 @@ const app = express();
 
 const allowedOrigins = [
   "http://localhost:5173",
+  "http://192.168.1.39:5173",
   "https://ai-document-assistant-dabw.vercel.app",
 ];
 

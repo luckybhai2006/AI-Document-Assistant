@@ -7,9 +7,7 @@ import ChatInput from "../components/ChatInput";
 import UploadProgressModal from "../components/UploadProgressModal";
 import axios from "axios";
 
-// =========================
 // AI THINKING LOADER
-// =========================
 const AITypingLoader = () => {
   return (
     <div className="flex items-center gap-2.5 py-1 text-[#c7c4d7]">
@@ -33,29 +31,23 @@ const AITypingLoader = () => {
 };
 
 export default function App() {
-  // =========================
   // AUTH
-  // =========================
   const [token, setToken] = useState(localStorage.getItem("token") || "");
 
   const [user, setUser] = useState(
     JSON.parse(localStorage.getItem("user") || "null")
   );
 
-  // =========================
   // MOBILE SIDEBAR
-  // =========================
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-
-  // =========================
   // DOCUMENT STATES
-  // =========================
   const [documents, setDocuments] = useState([]);
-  const [selectedDoc, setSelectedDoc] = useState(null);
+  const [selectedDoc, setSelectedDoc] = useState(() => {
+    const savedDoc = localStorage.getItem("selectedDoc");
+    return savedDoc ? JSON.parse(savedDoc) : null;
+  });
   const [isFetchingDocs, setIsFetchingDocs] = useState(true);
-  // =========================
   // CHAT STATES
-  // =========================
   const [messages, setMessages] = useState([
     {
       role: "ai",
@@ -74,27 +66,21 @@ export default function App() {
   const chatBottomRef = useRef(null);
 
   const [uploadProgress, setUploadProgress] = useState(0);
-  // =========================================================
   // AUTO SCROLL CHAT
-  // =========================================================
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({
       behavior: "smooth",
     });
   }, [messages, isStreaming]);
 
-  // =========================================================
   // FETCH DOCUMENTS
-  // =========================================================
   useEffect(() => {
     const fetchDocuments = async () => {
       if (!token) {
         setIsFetchingDocs(false);
         return;
       }
-
       setIsFetchingDocs(true);
-
       try {
         const res = await axios.get(
           `${import.meta.env.VITE_API_URL}/api/documents`,
@@ -104,28 +90,20 @@ export default function App() {
             },
           }
         );
-
         const docs = res.data.documents || res.data || [];
-
         setDocuments(docs);
-
         if (docs.length > 0) {
           const savedDocId = localStorage.getItem("selectedDocId");
-
           const matchedDoc = docs.find((d) => d._id === savedDocId);
-
           if (matchedDoc) {
             setSelectedDoc(matchedDoc);
           } else {
             setSelectedDoc(docs[0]);
-
             localStorage.setItem("selectedDocId", docs[0]._id);
           }
         } else {
           setSelectedDoc(null);
-
           localStorage.removeItem("selectedDocId");
-
           setMessages([
             {
               role: "ai",
@@ -144,21 +122,15 @@ export default function App() {
 
     fetchDocuments();
   }, [token]);
-
-  // =========================================================
   // 🔥 REAL-TIME DOCUMENT PROGRESS POLLING
-  // =========================================================
   useEffect(() => {
     if (!token) return;
-
     const processingDocs = documents.filter(
       (doc) => doc.status === "PENDING" || doc.status === "PROCESSING"
     );
-
     if (processingDocs.length === 0) {
       return;
     }
-
     const interval = setInterval(async () => {
       try {
         const res = await axios.get(
@@ -169,51 +141,40 @@ export default function App() {
             },
           }
         );
-
         const latestDocs = res.data.documents || res.data || [];
-
         setDocuments(latestDocs);
-
         // Selected document ko bhi latest progress do
         setSelectedDoc((currentSelected) => {
           if (!currentSelected?._id) {
             return currentSelected;
           }
-
           const updatedSelected = latestDocs.find(
             (doc) => doc._id === currentSelected._id
           );
-
           return updatedSelected || currentSelected;
         });
-
         // Agar koi document INDEXED ho gaya
         const finishedDoc = latestDocs.find(
           (doc) =>
             doc.status === "INDEXED" &&
             processingDocs.some((oldDoc) => oldDoc._id === doc._id)
         );
-
         if (finishedDoc) {
           setIsUploading(false);
-
           // Agar wahi currently selected document hai
           setSelectedDoc((currentSelected) => {
             if (currentSelected?._id === finishedDoc._id) {
               return finishedDoc;
             }
-
             return currentSelected;
           });
         }
-
         // Agar processing fail ho gaya
         const failedDoc = latestDocs.find(
           (doc) =>
             doc.status === "FAILED" &&
             processingDocs.some((oldDoc) => oldDoc._id === doc._id)
         );
-
         if (failedDoc) {
           setIsUploading(false);
         }
@@ -224,10 +185,7 @@ export default function App() {
 
     return () => clearInterval(interval);
   }, [documents, token]);
-
-  // =========================================================
   // CHAT HISTORY
-  // =========================================================
   useEffect(() => {
     const fetchChatHistory = async () => {
       if (!token || !selectedDoc?._id) {
@@ -237,13 +195,10 @@ export default function App() {
             text: "Hello! Upload a PDF or select an existing document from the sidebar to ask questions.",
           },
         ]);
-
         return;
       }
-
       try {
         setMessages([]);
-
         const res = await axios.get(
           `${import.meta.env.VITE_API_URL}/api/chat/history/${selectedDoc._id}`,
           {
@@ -252,9 +207,7 @@ export default function App() {
             },
           }
         );
-
         const historyMessages = res.data.messages || [];
-
         if (historyMessages.length > 0) {
           setMessages(historyMessages);
         } else {
@@ -267,7 +220,6 @@ export default function App() {
         }
       } catch (err) {
         console.error("Error fetching chat history:", err);
-
         setMessages([
           {
             role: "ai",
@@ -276,49 +228,63 @@ export default function App() {
         ]);
       }
     };
-
     fetchChatHistory();
   }, [token, selectedDoc]);
 
-  // =========================================================
   // SAVE SELECTED DOCUMENT
-  // =========================================================
   useEffect(() => {
     if (selectedDoc) {
       localStorage.setItem("lastSelectedDoc", JSON.stringify(selectedDoc));
-
       localStorage.setItem("selectedDocId", selectedDoc._id);
     }
   }, [selectedDoc]);
 
-  // =========================================================
   // LOGOUT
-  // =========================================================
   const handleLogout = () => {
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     localStorage.removeItem("selectedDoc");
     localStorage.removeItem("selectedDocId");
     localStorage.removeItem("lastSelectedDoc");
-
     setUser(null);
     setSelectedDoc(null);
     setDocuments([]);
     setToken("");
   };
+  useEffect(() => {
+    const token = localStorage.getItem("token");
 
-  // =========================================================
+    if (!token) return;
+
+    try {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+
+      const expiryTime = payload.exp * 1000;
+      const timeLeft = expiryTime - Date.now();
+
+      if (timeLeft <= 0) {
+        handleLogout();
+        return;
+      }
+
+      const timer = setTimeout(() => {
+        handleLogout();
+      }, timeLeft);
+
+      return () => clearTimeout(timer);
+    } catch (error) {
+      console.error("Invalid token:", error);
+      handleLogout();
+    }
+  }, [token]);
+
   // LOGIN SUCCESS
-  // =========================================================
   const handleLoginSuccess = (newToken, userData) => {
     setToken(newToken);
     setUser(userData);
-
     setSelectedDoc(null);
-
     localStorage.removeItem("selectedDoc");
     localStorage.removeItem("selectedDocId");
-
     setMessages([
       {
         role: "ai",
@@ -327,22 +293,16 @@ export default function App() {
     ]);
   };
 
-  // =========================================================
   // 🔥 FILE UPLOAD
-  // =========================================================
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
     const formData = new FormData();
     formData.append("file", file);
-
     try {
       setIsUploading(true);
-
       // Progress modal start
       setUploadProgress(0);
-
       // 1️⃣ File upload
       const res = await axios.post(
         `${import.meta.env.VITE_API_URL}/api/documents/upload`,
@@ -354,14 +314,11 @@ export default function App() {
           },
         }
       );
-
       const newDoc = res.data.document;
-
       // 2️⃣ Immediately document UI mein add karo
       setDocuments((prev) => [newDoc, ...prev]);
       setSelectedDoc(newDoc);
       setIsMobileSidebarOpen(false);
-
       // 3️⃣ Backend processing progress check karo
       const checkProgress = async () => {
         try {
@@ -373,27 +330,20 @@ export default function App() {
               },
             }
           );
-
           const doc = progressRes.data.document;
-
           // Backend ka actual progress
           setUploadProgress(doc.progress || 0);
-
           // Document processing complete
           if (doc.status === "INDEXED") {
             setUploadProgress(100);
-
             // Latest document state
             setDocuments((prev) =>
               prev.map((item) => (item._id === doc._id ? doc : item))
             );
-
             setSelectedDoc(doc);
-
             // Thoda delay taaki 100% visually dikhe
             setTimeout(() => {
               setIsUploading(false);
-
               setMessages([
                 {
                   role: "ai",
@@ -401,19 +351,15 @@ export default function App() {
                 },
               ]);
             }, 500);
-
             return;
           }
-
           // Processing fail
           if (doc.status === "FAILED") {
             setIsUploading(false);
             setUploadProgress(0);
-
             alert("Document processing failed.");
             return;
           }
-
           // Abhi processing chal rahi hai → dobara check
           setTimeout(checkProgress, 500);
         } catch (error) {
@@ -421,51 +367,37 @@ export default function App() {
           setTimeout(checkProgress, 1000);
         }
       };
-
       // 4️⃣ Progress polling start
       checkProgress();
     } catch (err) {
       console.error("Upload error:", err);
-
       alert(err.response?.data?.message || "File upload failed");
-
       setIsUploading(false);
       setUploadProgress(0);
     }
   };
 
-  // =========================================================
   // SEND CHAT MESSAGE
-  // =========================================================
   const handleSendMessage = async () => {
     if (!inputQuestion.trim()) return;
-
     if (!selectedDoc) {
       alert("Please select or upload a document first!");
-
       return;
     }
-
     // Processing document par question mat bhejo
     if (
       selectedDoc.status === "PENDING" ||
       selectedDoc.status === "PROCESSING"
     ) {
       alert("Please wait until the document finishes processing.");
-
       return;
     }
-
     if (selectedDoc.status === "FAILED") {
       alert("This document failed to process. Please upload it again.");
-
       return;
     }
-
     const questionText = inputQuestion;
-
     setInputQuestion("");
-
     setMessages((prev) => [
       ...prev,
       {
@@ -473,7 +405,6 @@ export default function App() {
         text: questionText,
       },
     ]);
-
     setMessages((prev) => [
       ...prev,
       {
@@ -481,36 +412,27 @@ export default function App() {
         text: "",
       },
     ]);
-
     setIsStreaming(true);
-
     try {
       const response = await fetch(
         `${import.meta.env.VITE_API_URL}/api/chat/ask`,
         {
           method: "POST",
-
           headers: {
             "Content-Type": "application/json",
-
             Authorization: `Bearer ${token}`,
           },
-
           body: JSON.stringify({
             documentId: selectedDoc._id,
-
             question: questionText,
           }),
         }
       );
-
       if (!response.ok) {
         throw new Error(`Server returned ${response.status}`);
       }
-
       const reader = response.body.getReader();
-
-      const decoder = new TextDecoder("utf-8");
+      const decoder = new TextDecoder();
 
       let buffer = "";
 
@@ -518,59 +440,64 @@ export default function App() {
         const { done, value } = await reader.read();
 
         if (done) break;
+        // console.log("🔥 FRONTEND CHUNK:", new TextDecoder().decode(value));
+        buffer += decoder.decode(value, { stream: true });
 
-        buffer += decoder.decode(value, {
-          stream: true,
-        });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() || "";
 
-        const lines = buffer.split("\n\n");
+        for (const event of events) {
+          const line = event.trim();
 
-        buffer = lines.pop() || "";
+          if (!line.startsWith("data:")) continue;
 
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) {
-            continue;
-          }
+          const data = line.replace(/^data:\s*/, "");
 
-          const dataStr = line.replace("data: ", "").trim();
-
-          if (dataStr === "[DONE]") {
-            break;
-          }
+          if (data === "[DONE]") continue;
 
           try {
-            const parsed = JSON.parse(dataStr);
+            const parsed = JSON.parse(data);
 
-            if (parsed.text) {
-              setMessages((prevMessages) => {
-                const updated = [...prevMessages];
+            if (parsed.type === "text" && parsed.text) {
+              setMessages((prev) => {
+                const updated = [...prev];
 
-                const lastIdx = updated.length - 1;
+                const lastIndex = updated.length - 1;
 
-                updated[lastIdx] = {
-                  ...updated[lastIdx],
+                updated[lastIndex] = {
+                  ...updated[lastIndex],
+                  text: updated[lastIndex].text + parsed.text,
+                };
 
-                  text: updated[lastIdx].text + parsed.text,
+                return updated;
+              });
+            }
+            if (parsed.type === "sources" && parsed.sources) {
+              setMessages((prev) => {
+                const updated = [...prev];
+                const lastIndex = updated.length - 1;
+
+                updated[lastIndex] = {
+                  ...updated[lastIndex],
+                  sources: parsed.sources,
                 };
 
                 return updated;
               });
             }
 
-            if (parsed.error) {
+            if (parsed.type === "error") {
               throw new Error(parsed.error);
             }
-          } catch (parseError) {
-            console.error("Parse Error:", parseError);
+          } catch (error) {
+            console.error("❌ SSE Parse Error:", error);
           }
         }
       }
     } catch (err) {
       console.error("Chat streaming error:", err);
-
       setMessages((prev) => [
         ...prev,
-
         {
           role: "ai",
           text: "Error generating response. Check your server connection.",
@@ -581,9 +508,7 @@ export default function App() {
     }
   };
 
-  // =========================================================
   // DELETE DOCUMENT
-  // =========================================================
   const handleDeleteDocument = async (e, docId) => {
     e.stopPropagation();
 
@@ -633,9 +558,7 @@ export default function App() {
     }
   };
 
-  // =========================================================
   // CLEAR CHAT
-  // =========================================================
   const handleClearChat = async () => {
     if (!selectedDoc?._id) return;
 
@@ -670,16 +593,12 @@ export default function App() {
     }
   };
 
-  // =========================================================
   // AUTH SCREEN
-  // =========================================================
   if (!token) {
     return <AuthModal onLoginSuccess={handleLoginSuccess} />;
   }
 
-  // =========================================================
   // MAIN UI
-  // =========================================================
   return (
     <div className="bg-[#131315] text-[#e5e1e4] h-[100dvh] w-full overflow-hidden flex font-sans fixed inset-0 touch-none">
       <div className="absolute inset-0 bg-grid z-0 pointer-events-none"></div>
@@ -759,7 +678,19 @@ export default function App() {
                       ) : (
                         <>
                           <ReactMarkdown>{msg.text}</ReactMarkdown>
-
+                          {msg.sources?.length > 0 && (
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              {msg.sources.map((source, sourceIndex) => (
+                                <span
+                                  key={sourceIndex}
+                                  className="text-xs px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 text-[#c7c4d7]"
+                                >
+                                  📄 {selectedDoc?.name || "Document"} · Page{" "}
+                                  {source.page}
+                                </span>
+                              ))}
+                            </div>
+                          )}
                           {isStreaming && idx === messages.length - 1 && (
                             <span className="inline-block w-1.5 h-4 bg-[#c0c1ff] ml-1 animate-pulse"></span>
                           )}

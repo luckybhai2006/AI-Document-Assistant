@@ -7,14 +7,25 @@ const messageSchema = new mongoose.Schema(
       enum: ["user", "ai"],
       required: true,
     },
+
     text: {
       type: String,
       required: true,
     },
+
+    sources: [
+      {
+        page: {
+          type: Number,
+        },
+        source: {
+          type: String,
+        },
+      },
+    ],
   },
   { timestamps: true }
 );
-
 const chatSchema = new mongoose.Schema(
   {
     userId: {

@@ -11,7 +11,6 @@ export const processDocument = async (documentId) => {
     if (!doc) {
       throw new Error("Document not found in MongoDB");
     }
-
     // =========================
     // Start Processing
     // =========================
@@ -38,16 +37,17 @@ export const processDocument = async (documentId) => {
       console.log("📄 Parsing PDF...");
 
       const pdf = await getDocumentProxy(pdfBuffer);
-      const { text } = await extractText(pdf, { mergePages: true });
+      const { text } = await extractText(pdf, {
+        mergePages: false,
+      });
 
-      rawDocs = [
-        {
-          pageContent: text,
-          metadata: {
-            source: doc.filePath,
-          },
+      rawDocs = text.map((pageText, index) => ({
+        pageContent: pageText,
+        metadata: {
+          source: doc.filePath,
+          page: index + 1,
         },
-      ];
+      }));
 
       console.log("✅ PDF parsed successfully");
     }
@@ -126,6 +126,8 @@ export const processDocument = async (documentId) => {
       metadata: {
         userId: doc.userId.toString(),
         documentId: doc._id.toString(),
+        source: doc.filePath,
+        page: chunk.metadata?.page ?? null,
       },
     }));
 
