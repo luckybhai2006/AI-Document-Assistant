@@ -17,6 +17,8 @@ export default function ChatInput({
   const audioChunksRef = useRef([]);
   const isStartingRef = useRef(false);
 
+  const textareaRef = useRef(null);
+
   // ==========================================
   // 🔊 PERSISTENT AUDIO CONTEXT (fixes double/choppy beep)
   // ==========================================
@@ -277,6 +279,20 @@ export default function ChatInput({
     setIsTranscribing(false);
   };
 
+  const handleTextareaChange = (e) => {
+    setInputQuestion(e.target.value);
+
+    const textarea = textareaRef.current;
+
+    if (!textarea) return;
+
+    textarea.style.height = "auto";
+
+    const maxHeight = 120;
+
+    textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+  };
+
   return (
     <div className="absolute bottom-2 md:bottom-6 left-0 right-0 px-3 md:px-6 flex justify-center z-40 pointer-events-none">
       <div className="w-full max-w-3xl glass-floating rounded-2xl p-2 md:p-2.5 flex flex-col shadow-2xl pointer-events-auto bg-[#131315]/90 backdrop-blur-xl border border-white/10">
@@ -339,8 +355,9 @@ export default function ChatInput({
                   TEXT AREA
               ========================================== */}
               <textarea
+                ref={textareaRef}
                 value={inputQuestion}
-                onChange={(e) => setInputQuestion(e.target.value)}
+                onChange={handleTextareaChange}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -350,7 +367,7 @@ export default function ChatInput({
                 style={{
                   fontSize: "16px",
                 }}
-                className="flex-1 bg-transparent border-none focus:ring-0 text-white text-base md:text-sm resize-none py-1.5 px-2 max-h-28 placeholder-[#908fa0] leading-normal outline-none"
+                className="flex-1 bg-transparent border-none focus:ring-0 text-white text-base md:text-sm resize-none py-1.5 px-2 max-h-[120px] overflow-y-auto placeholder-[#908fa0] leading-normal outline-none"
                 placeholder="Ask anything or speak..."
                 rows="1"
               />

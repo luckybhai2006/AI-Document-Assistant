@@ -496,13 +496,18 @@ export default function App() {
       }
     } catch (err) {
       console.error("Chat streaming error:", err);
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "ai",
-          text: "Error generating response. Check your server connection.",
-        },
-      ]);
+      setMessages((prev) => {
+        const updated = [...prev];
+
+        const lastIndex = updated.length - 1;
+
+        updated[lastIndex] = {
+          ...updated[lastIndex],
+          text: "Error generating response. Please try again.",
+        };
+
+        return updated;
+      });
     } finally {
       setIsStreaming(false);
     }
