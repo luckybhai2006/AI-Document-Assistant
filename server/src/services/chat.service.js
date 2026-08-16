@@ -17,6 +17,14 @@ export const streamAnswerFromDocs = async (params, onChunk) => {
   let matchingMetadatas = [];
   let sources = [];
 
+  // =========================
+  // EXTRACTION QUERY CHECK
+  // =========================
+  const isExtractionQuery =
+    /\b(all|every|each|list|extract|give me|show me|find all|find every)\b/i.test(
+      question
+    );
+
   try {
     const embeddingsModel = getGeminiEmbeddings();
 
@@ -37,42 +45,64 @@ export const streamAnswerFromDocs = async (params, onChunk) => {
     const queryVector = await embeddingsModel.embedQuery(question);
 
     // =========================
-    // Mode A: Single Selected Document
+    // 2. SINGLE DOCUMENT
     // =========================
     if (documentId) {
-      const searchResults = await collection.query({
-        queryEmbeddings: [queryVector],
-        nResults: 1,
-        where: {
-          documentId: documentId.toString(),
-        },
-      });
+      let searchResults;
+
+      // =========================
+      // EXTRACTION MODE
+      // =========================
+      if (isExtractionQuery) {
+        console.log("🔍 EXTRACTION MODE - SEARCHING WHOLE DOCUMENT");
+
+        searchResults = await collection.get({
+          where: {
+            documentId: documentId.toString(),
+          },
+          include: ["documents", "metadatas"],
+        });
+
+        matchingDocs = searchResults.documents || [];
+        matchingMetadatas = searchResults.metadatas || [];
+
+        console.log("📚 TOTAL DOCUMENT CHUNKS:", matchingDocs.length);
+      }
+
+      // =========================
+      // NORMAL MODE
+      // =========================
+      else {
+        console.log("🔍 NORMAL MODE - SEARCHING RELEVANT CHUNK");
+
+        searchResults = await collection.query({
+          queryEmbeddings: [queryVector],
+          nResults: 1,
+          where: {
+            documentId: documentId.toString(),
+          },
+        });
+
+        matchingDocs = searchResults.documents?.[0] || [];
+        matchingMetadatas = searchResults.metadatas?.[0] || [];
+
+        console.log("📚 RETRIEVED CHUNKS:", matchingDocs.length);
+      }
 
       console.log("🔎 DOCUMENT ID:", documentId);
-      console.log("🔎 QUERY:", question);
-
-      console.log(
-        "📚 RETRIEVED CHUNKS:",
-        JSON.stringify(searchResults.documents?.[0], null, 2)
-      );
-
-      console.log(
-        "📄 RETRIEVED METADATA:",
-        JSON.stringify(searchResults.metadatas?.[0], null, 2)
-      );
-
-      matchingDocs = searchResults.documents?.[0] || [];
-      matchingMetadatas = searchResults.metadatas?.[0] || [];
+      console.log("🔎 QUESTION:", question);
     }
 
     // =========================
-    // Mode B: Multi-Document Search
+    // 3. MULTI DOCUMENT SEARCH
     // =========================
     else if (
       multiDocIds &&
       Array.isArray(multiDocIds) &&
       multiDocIds.length > 0
     ) {
+      console.log("🔍 MULTI DOCUMENT MODE");
+
       const searchResults = await collection.query({
         queryEmbeddings: [queryVector],
         nResults: 8,
@@ -86,83 +116,120 @@ export const streamAnswerFromDocs = async (params, onChunk) => {
     }
 
     // =========================
-    // 2. Combine Chunks + Page Metadata
+    // 4. BUILD CONTEXT
     // =========================
     if (matchingDocs.length > 0) {
       contextText = matchingDocs
         .map((text, index) => {
           const metadata = matchingMetadatas[index];
 
-          return `[Page ${metadata?.page || "Unknown"}]\n${text}`;
+          return `[PAGE ${metadata?.page || "Unknown"}]\n${text}`;
         })
         .join("\n\n");
 
-      // =========================
-      // 3. Prepare Sources
-      // =========================
-      sources = [
-        ...new Map(
-          matchingMetadatas
-            .map((metadata) => ({
-              page: metadata?.page || null,
-              source: metadata?.source || null,
-            }))
-            .filter((source) => source.page || source.source)
-            .map((source) => [`${source.source}-${source.page}`, source])
-        ).values(),
-      ];
-
-      console.log("METADATA LENGTH:", matchingMetadatas.length);
-      console.log("📚 SOURCES:", JSON.stringify(sources, null, 2));
+      console.log("📄 CONTEXT CHUNKS:", matchingDocs.length);
     }
   } catch (err) {
-    console.log(
-      "⚠️ Vector Search bypassed/failed, falling back to General AI Mode:",
-      err.message
-    );
+    console.log("⚠️ Vector Search bypassed/failed:", err.message);
   }
 
   // =========================
-  // 4. Dynamic Prompt
+  // 5. CREATE PROMPT
   // =========================
   let prompt = "";
 
   if (contextText && contextText.trim().length > 20) {
-    prompt = `You are an AI Document Assistant.
+    // =====================================================
+    // EXTRACTION PROMPT
+    // =====================================================
+    if (isExtractionQuery) {
+      prompt = `You are an AI Document Assistant.
 
-The user has selected an uploaded document. You MUST answer using the document context provided below.
+The user wants information extracted from the uploaded document.
+
+You have been given the COMPLETE retrieved document context.
 
 IMPORTANT RULES:
-1. Use the provided document context as the primary and only source of truth.
-2. Never say that the user has not uploaded a document if document context is available.
-3. Never invent information that is not present in the context.
-4. If the question asks what the document is about, identify its title, project name, subject, introduction, or other relevant information from the context.
-5. If the question asks for the number of pages, look carefully for page markers such as "35 of 35".
-6. If the answer cannot be found in the provided context, say clearly that the information could not be found in the retrieved part of the document.
-7. Give a direct, natural answer.
-8. Do not mention embeddings, ChromaDB, vector search, metadata, or internal system details.
-9. Do not include page numbers in your answer. Page numbers will be displayed separately by the application.
+
+1. Search ALL provided pages before answering.
+2. Do NOT answer using only the first or most relevant page.
+3. Find EVERY occurrence that matches the user's request.
+4. Never invent information.
+5. Preserve the exact values found in the document.
+6. Remove duplicate values.
+7. For every extracted value, identify the page where it appears.
+8. If the same value appears on multiple pages, include all relevant pages.
+9. Only include pages that actually contain information relevant to the answer.
+10. Do not include unrelated pages.
+11. If nothing matching the question exists, say that nothing was found.
+12. Return ONLY valid JSON.
+13. Do not use markdown code fences.
+
+The JSON MUST have exactly this structure:
+
+{
+  "answer": "Your natural language answer containing all extracted values.",
+  "pages": [2, 6]
+}
+
+The "pages" array MUST contain ONLY the page numbers that actually support the answer.
 
 DOCUMENT CONTEXT:
+
 ${contextText}
 
 USER QUESTION:
+
+${question}
+
+JSON RESPONSE:`;
+    }
+
+    // =====================================================
+    // NORMAL QUESTION PROMPT
+    // =====================================================
+    else {
+      prompt = `You are an AI Document Assistant.
+
+The user has selected an uploaded document.
+
+IMPORTANT RULES:
+
+1. Use the provided document context as the primary and only source of truth.
+2. Never invent information.
+3. Answer directly and naturally.
+4. If the answer cannot be found in the provided context, clearly say that it could not be found.
+5. Do not mention embeddings, ChromaDB, vector search, metadata, or internal system details.
+6. Do not include page numbers in the answer.
+
+DOCUMENT CONTEXT:
+
+${contextText}
+
+USER QUESTION:
+
 ${question}
 
 ANSWER:`;
+    }
   } else {
-    // General AI Mode
+    // =========================
+    // GENERAL AI MODE
+    // =========================
     prompt = `You are a helpful AI assistant.
 
 Answer the user's question clearly and naturally.
 
 USER QUESTION:
+
 ${question}
 
 ANSWER:`;
   }
 
-  // 5. Gemini
+  // =========================
+  // 6. GEMINI
+  // =========================
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
 
   const model = genAI.getGenerativeModel({
@@ -171,22 +238,99 @@ ANSWER:`;
 
   const resultStream = await model.generateContentStream(prompt);
 
-  // 6. Store Full AI Response
+  // =========================
+  // 7. RECEIVE GEMINI RESPONSE
+  // =========================
   let fullAiText = "";
 
-  // 7. Stream AI Response
   for await (const chunk of resultStream.stream) {
     const chunkText = chunk.text();
 
     if (chunkText) {
       fullAiText += chunkText;
-
-      // Send chunk to controller
-      onChunk(chunkText);
     }
   }
 
-  // 8. Return Answer + Sources
+  // =====================================================
+  // 8. EXTRACTION RESPONSE
+  // =====================================================
+  if (isExtractionQuery && contextText) {
+    try {
+      const cleanedResponse = fullAiText
+        .replace(/```json/gi, "")
+        .replace(/```/g, "")
+        .trim();
+
+      const parsedResponse = JSON.parse(cleanedResponse);
+
+      // =========================
+      // SEND ONLY ANSWER TO UI
+      // =========================
+      if (parsedResponse.answer) {
+        onChunk(parsedResponse.answer);
+      }
+
+      // =========================
+      // FIND ONLY RELEVANT PAGES
+      // =========================
+      if (
+        Array.isArray(parsedResponse.pages) &&
+        parsedResponse.pages.length > 0
+      ) {
+        const relevantPages = new Set(
+          parsedResponse.pages.map((page) => Number(page))
+        );
+
+        sources = [
+          ...new Map(
+            matchingMetadatas
+              .filter((metadata) => relevantPages.has(Number(metadata?.page)))
+              .map((metadata) => ({
+                page: metadata?.page || null,
+                source: metadata?.source || null,
+              }))
+              .filter((source) => source.page || source.source)
+              .map((source) => [`${source.source}-${source.page}`, source])
+          ).values(),
+        ];
+      }
+    } catch (error) {
+      console.error("❌ Extraction JSON Parse Error:", error.message);
+
+      // Fallback
+      onChunk(fullAiText);
+
+      // Agar Gemini JSON nahi deta,
+      // saare sources nahi bhejenge blindly.
+      sources = [];
+    }
+  }
+
+  // =====================================================
+  // 9. NORMAL RESPONSE
+  // =====================================================
+  else {
+    onChunk(fullAiText);
+
+    // Normal query mein retrieved page(s)
+    sources = [
+      ...new Map(
+        matchingMetadatas
+          .map((metadata) => ({
+            page: metadata?.page || null,
+            source: metadata?.source || null,
+          }))
+          .filter((source) => source.page || source.source)
+          .map((source) => [`${source.source}-${source.page}`, source])
+      ).values(),
+    ];
+  }
+
+  // =========================
+  // 10. FINAL RESULT
+  // =========================
+  console.log("📚 FINAL SOURCES:", JSON.stringify(sources, null, 2));
+
   return {
     answer: fullAiText,
     sources,

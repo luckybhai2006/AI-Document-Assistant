@@ -101,6 +101,32 @@ export default function ChatInput({
     audioChunksRef.current = [];
   };
 
+  // Mic Sound
+  const playMicSound = (frequency = 700) => {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+
+    const audioContext = new AudioContext();
+
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+
+    oscillator.type = "sine";
+    oscillator.frequency.value = frequency;
+
+    gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
+
+    gainNode.gain.exponentialRampToValueAtTime(
+      0.001,
+      audioContext.currentTime + 0.18
+    );
+
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + 0.18);
+  };
+
   return (
     <div className="absolute bottom-2 md:bottom-6 left-0 right-0 px-3 md:px-6 flex justify-center z-40 pointer-events-none">
       <div className="w-full max-w-3xl glass-floating rounded-2xl p-2 md:p-2.5 flex flex-col shadow-2xl pointer-events-auto bg-[#131315]/90 backdrop-blur-xl border border-white/10">
@@ -110,24 +136,33 @@ export default function ChatInput({
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#201f22] text-[#c7c4d7] text-[11px] border border-white/5 whitespace-nowrap">
               <span className="material-symbols-outlined text-[12px]">
                 picture_as_pdf
-              </span>{" "}
+              </span>
               @{selectedDoc.originalName || selectedDoc.fileName}
             </span>
           </div>
         )}
 
         <div className="flex items-center gap-2 px-1 min-h-[44px]">
-          {/* Active Voice Waveform or Transcribing State */}
+          {/* =========================
+          Voice Waveform
+      ========================= */}
           {isListening || isTranscribing ? (
             <VoiceWaveform
               isListening={isListening}
               isTranscribing={isTranscribing}
-              onStop={stopListening}
+              onStop={() => {
+                // 🔊 Done / Stop sound
+                playMicSound(500);
+
+                stopListening();
+              }}
               onCancel={cancelListening}
             />
           ) : (
             <>
-              {/* PDF File Attach Icon */}
+              {/* =========================
+              PDF File Attach Icon
+          ========================= */}
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
@@ -139,10 +174,17 @@ export default function ChatInput({
                 </span>
               </button>
 
-              {/* Mic Icon */}
+              {/* =========================
+              Mic Icon
+          ========================= */}
               <button
                 type="button"
-                onClick={startListening}
+                onClick={() => {
+                  // 🔊 Mic start sound
+                  playMicSound(700);
+
+                  startListening();
+                }}
                 className="p-2 text-[#c7c4d7] hover:text-[#c0c1ff] hover:bg-[#201f22] rounded-xl transition-all shrink-0 flex items-center justify-center"
                 title="Voice Input (Mic)"
               >
@@ -151,7 +193,9 @@ export default function ChatInput({
                 </span>
               </button>
 
-              {/* Text Area */}
+              {/* =========================
+              Text Area
+          ========================= */}
               <textarea
                 value={inputQuestion}
                 onChange={(e) => setInputQuestion(e.target.value)}
@@ -165,9 +209,11 @@ export default function ChatInput({
                 className="flex-1 bg-transparent border-none focus:ring-0 text-white text-base md:text-sm resize-none py-1.5 px-2 max-h-28 placeholder-[#908fa0] leading-normal outline-none"
                 placeholder="Ask anything or speak..."
                 rows="1"
-              ></textarea>
+              />
 
-              {/* Send Button */}
+              {/* =========================
+              Send Button
+          ========================= */}
               <button
                 type="button"
                 onClick={handleSendMessage}
