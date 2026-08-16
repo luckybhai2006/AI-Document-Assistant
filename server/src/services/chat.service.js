@@ -17,13 +17,34 @@ export const streamAnswerFromDocs = async (params, onChunk) => {
   let matchingMetadatas = [];
   let sources = [];
 
-  // =========================
-  // EXTRACTION QUERY CHECK
-  // =========================
+  // =====================================================
+  // 1. QUERY TYPE DETECTION
+  // =====================================================
+
+  // Example:
+  // "what is written in the 11th page?"
+  // "show me page 5"
+  // "what is on page 20?"
+  const pageMatch = question.match(
+    /\b(?:page|pg\.?)\s*(\d+)|\b(\d+)(?:st|nd|rd|th)\s+page\b/i
+  );
+
+  const requestedPage = pageMatch ? Number(pageMatch[1] || pageMatch[2]) : null;
+
+  // Example:
+  // "give me all emails"
+  // "list all names"
+  // "find every phone number"
   const isExtractionQuery =
     /\b(all|every|each|list|extract|give me|show me|find all|find every)\b/i.test(
       question
     );
+
+  console.log("========================================");
+  console.log("❓ QUESTION:", question);
+  console.log("📄 REQUESTED PAGE:", requestedPage);
+  console.log("🔍 EXTRACTION QUERY:", isExtractionQuery);
+  console.log("========================================");
 
   try {
     const embeddingsModel = getGeminiEmbeddings();
@@ -39,21 +60,61 @@ export const streamAnswerFromDocs = async (params, onChunk) => {
       embeddingFunction: dummyEmbeddingFunction,
     });
 
-    // =========================
-    // 1. Generate Question Vector
-    // =========================
-    const queryVector = await embeddingsModel.embedQuery(question);
+    // =====================================================
+    // 2. GENERATE QUESTION VECTOR
+    // =====================================================
 
-    // =========================
-    // 2. SINGLE DOCUMENT
-    // =========================
+    // Page query mein vector ki zarurat nahi hai.
+    // Baaki queries ke liye generate karenge.
+    let queryVector = null;
+
+    if (!requestedPage) {
+      queryVector = await embeddingsModel.embedQuery(question);
+    }
+
+    // =====================================================
+    // 3. SINGLE DOCUMENT
+    // =====================================================
+
     if (documentId) {
       let searchResults;
 
-      // =========================
-      // EXTRACTION MODE
-      // =========================
-      if (isExtractionQuery) {
+      // ===================================================
+      // MODE A — SPECIFIC PAGE
+      // ===================================================
+
+      if (requestedPage) {
+        console.log(
+          `📄 PAGE MODE - SEARCHING DIRECTLY FOR PAGE ${requestedPage}`
+        );
+
+        searchResults = await collection.get({
+          where: {
+            $and: [
+              {
+                documentId: documentId.toString(),
+              },
+              {
+                page: requestedPage,
+              },
+            ],
+          },
+          include: ["documents", "metadatas"],
+        });
+
+        matchingDocs = searchResults.documents || [];
+        matchingMetadatas = searchResults.metadatas || [];
+
+        console.log(
+          `📚 PAGE ${requestedPage} CHUNKS FOUND:`,
+          matchingDocs.length
+        );
+      }
+
+      // ===================================================
+      // MODE B — EXTRACTION / WHOLE DOCUMENT
+      // ===================================================
+      else if (isExtractionQuery) {
         console.log("🔍 EXTRACTION MODE - SEARCHING WHOLE DOCUMENT");
 
         searchResults = await collection.get({
@@ -69,9 +130,9 @@ export const streamAnswerFromDocs = async (params, onChunk) => {
         console.log("📚 TOTAL DOCUMENT CHUNKS:", matchingDocs.length);
       }
 
-      // =========================
-      // NORMAL MODE
-      // =========================
+      // ===================================================
+      // MODE C — NORMAL SEMANTIC SEARCH
+      // ===================================================
       else {
         console.log("🔍 NORMAL MODE - SEARCHING RELEVANT CHUNK");
 
@@ -90,12 +151,11 @@ export const streamAnswerFromDocs = async (params, onChunk) => {
       }
 
       console.log("🔎 DOCUMENT ID:", documentId);
-      console.log("🔎 QUESTION:", question);
     }
 
-    // =========================
-    // 3. MULTI DOCUMENT SEARCH
-    // =========================
+    // =====================================================
+    // 4. MULTI DOCUMENT SEARCH
+    // =====================================================
     else if (
       multiDocIds &&
       Array.isArray(multiDocIds) &&
@@ -113,11 +173,14 @@ export const streamAnswerFromDocs = async (params, onChunk) => {
 
       matchingDocs = searchResults.documents?.[0] || [];
       matchingMetadatas = searchResults.metadatas?.[0] || [];
+
+      console.log("📚 MULTI DOCUMENT CHUNKS:", matchingDocs.length);
     }
 
-    // =========================
-    // 4. BUILD CONTEXT
-    // =========================
+    // =====================================================
+    // 5. BUILD DOCUMENT CONTEXT
+    // =====================================================
+
     if (matchingDocs.length > 0) {
       contextText = matchingDocs
         .map((text, index) => {
@@ -128,26 +191,61 @@ export const streamAnswerFromDocs = async (params, onChunk) => {
         .join("\n\n");
 
       console.log("📄 CONTEXT CHUNKS:", matchingDocs.length);
+    } else {
+      console.log("⚠️ NO DOCUMENT CHUNKS FOUND");
     }
   } catch (err) {
     console.log("⚠️ Vector Search bypassed/failed:", err.message);
   }
 
-  // =========================
-  // 5. CREATE PROMPT
-  // =========================
+  // =====================================================
+  // 6. CREATE PROMPT
+  // =====================================================
+
   let prompt = "";
 
   if (contextText && contextText.trim().length > 20) {
-    // =====================================================
-    // EXTRACTION PROMPT
-    // =====================================================
-    if (isExtractionQuery) {
+    // ===================================================
+    // SPECIFIC PAGE PROMPT
+    // ===================================================
+
+    if (requestedPage) {
       prompt = `You are an AI Document Assistant.
 
-The user wants information extracted from the uploaded document.
+The user asked specifically about page ${requestedPage} of the uploaded PDF.
 
-You have been given the COMPLETE retrieved document context.
+IMPORTANT RULES:
+
+1. Use ONLY the provided document context.
+2. The provided context is specifically retrieved for page ${requestedPage}.
+3. Answer using the actual content of that page.
+4. Do not use information from other pages.
+5. Never invent information.
+6. If the requested information is not present on this page, clearly say that it could not be found on this page.
+7. Answer directly and naturally.
+8. Do not mention embeddings, ChromaDB, vector search, metadata, or internal system details.
+9. Do not include page numbers in the answer because the application displays them separately.
+
+DOCUMENT CONTEXT:
+
+${contextText}
+
+USER QUESTION:
+
+${question}
+
+ANSWER:`;
+    }
+
+    // ===================================================
+    // EXTRACTION PROMPT
+    // ===================================================
+    else if (isExtractionQuery) {
+      prompt = `You are an AI Document Assistant.
+
+The user wants information extracted from the uploaded PDF.
+
+The provided context contains the complete retrieved document.
 
 IMPORTANT RULES:
 
@@ -157,10 +255,10 @@ IMPORTANT RULES:
 4. Never invent information.
 5. Preserve the exact values found in the document.
 6. Remove duplicate values.
-7. For every extracted value, identify the page where it appears.
+7. For every extracted value, determine the page where it actually appears.
 8. If the same value appears on multiple pages, include all relevant pages.
-9. Only include pages that actually contain information relevant to the answer.
-10. Do not include unrelated pages.
+9. ONLY include pages that actually contain information supporting the answer.
+10. Do NOT include unrelated pages.
 11. If nothing matching the question exists, say that nothing was found.
 12. Return ONLY valid JSON.
 13. Do not use markdown code fences.
@@ -169,10 +267,10 @@ The JSON MUST have exactly this structure:
 
 {
   "answer": "Your natural language answer containing all extracted values.",
-  "pages": [2, 6]
+  "pages": [2, 5]
 }
 
-The "pages" array MUST contain ONLY the page numbers that actually support the answer.
+The "pages" array MUST contain ONLY the page numbers that actually contain the extracted information.
 
 DOCUMENT CONTEXT:
 
@@ -185,9 +283,9 @@ ${question}
 JSON RESPONSE:`;
     }
 
-    // =====================================================
+    // ===================================================
     // NORMAL QUESTION PROMPT
-    // =====================================================
+    // ===================================================
     else {
       prompt = `You are an AI Document Assistant.
 
@@ -213,9 +311,10 @@ ${question}
 ANSWER:`;
     }
   } else {
-    // =========================
+    // ===================================================
     // GENERAL AI MODE
-    // =========================
+    // ===================================================
+
     prompt = `You are a helpful AI assistant.
 
 Answer the user's question clearly and naturally.
@@ -227,9 +326,10 @@ ${question}
 ANSWER:`;
   }
 
-  // =========================
-  // 6. GEMINI
-  // =========================
+  // =====================================================
+  // 7. GEMINI
+  // =====================================================
+
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_KEY);
 
   const model = genAI.getGenerativeModel({
@@ -238,9 +338,10 @@ ANSWER:`;
 
   const resultStream = await model.generateContentStream(prompt);
 
-  // =========================
-  // 7. RECEIVE GEMINI RESPONSE
-  // =========================
+  // =====================================================
+  // 8. RECEIVE GEMINI RESPONSE
+  // =====================================================
+
   let fullAiText = "";
 
   for await (const chunk of resultStream.stream) {
@@ -252,9 +353,33 @@ ANSWER:`;
   }
 
   // =====================================================
-  // 8. EXTRACTION RESPONSE
+  // 9. SPECIFIC PAGE RESPONSE
   // =====================================================
-  if (isExtractionQuery && contextText) {
+
+  if (requestedPage && contextText) {
+    // Direct page query hai,
+    // isliye source sirf requested page hoga.
+
+    sources = [
+      ...new Map(
+        matchingMetadatas
+          .filter((metadata) => Number(metadata?.page) === requestedPage)
+          .map((metadata) => ({
+            page: metadata?.page || null,
+            source: metadata?.source || null,
+          }))
+          .filter((source) => source.page || source.source)
+          .map((source) => [`${source.source}-${source.page}`, source])
+      ).values(),
+    ];
+
+    onChunk(fullAiText);
+  }
+
+  // =====================================================
+  // 10. EXTRACTION RESPONSE
+  // =====================================================
+  else if (isExtractionQuery && contextText) {
     try {
       const cleanedResponse = fullAiText
         .replace(/```json/gi, "")
@@ -263,16 +388,18 @@ ANSWER:`;
 
       const parsedResponse = JSON.parse(cleanedResponse);
 
-      // =========================
-      // SEND ONLY ANSWER TO UI
-      // =========================
+      // -----------------------------------------------
+      // SEND ANSWER TO UI
+      // -----------------------------------------------
+
       if (parsedResponse.answer) {
         onChunk(parsedResponse.answer);
       }
 
-      // =========================
-      // FIND ONLY RELEVANT PAGES
-      // =========================
+      // -----------------------------------------------
+      // ONLY RELEVANT PAGES
+      // -----------------------------------------------
+
       if (
         Array.isArray(parsedResponse.pages) &&
         parsedResponse.pages.length > 0
@@ -300,19 +427,16 @@ ANSWER:`;
       // Fallback
       onChunk(fullAiText);
 
-      // Agar Gemini JSON nahi deta,
-      // saare sources nahi bhejenge blindly.
       sources = [];
     }
   }
 
   // =====================================================
-  // 9. NORMAL RESPONSE
+  // 11. NORMAL RESPONSE
   // =====================================================
   else {
     onChunk(fullAiText);
 
-    // Normal query mein retrieved page(s)
     sources = [
       ...new Map(
         matchingMetadatas
@@ -326,9 +450,10 @@ ANSWER:`;
     ];
   }
 
-  // =========================
-  // 10. FINAL RESULT
-  // =========================
+  // =====================================================
+  // 12. FINAL RESULT
+  // =====================================================
+
   console.log("📚 FINAL SOURCES:", JSON.stringify(sources, null, 2));
 
   return {

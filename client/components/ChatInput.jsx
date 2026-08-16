@@ -140,7 +140,7 @@ export default function ChatInput({
       // 🔊 Sound FIRST — called synchronously, before any `await`, so the
       // browser still treats this as tied to the user's click gesture
       // (important for autoplay/audio policies on mobile browsers).
-      playMicSound(1800);
+      playMicSound(1300);
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: true,
@@ -203,7 +203,7 @@ export default function ChatInput({
       // (audioChunksRef was filled before this point, from the
       // `ondataavailable` events — this beep is generated after
       // recording has fully ended, so it is never part of the blob).
-      playMicSound(1200);
+      playMicSound(1000);
 
       // ==========================================
       // 🎧 CREATE AUDIO
